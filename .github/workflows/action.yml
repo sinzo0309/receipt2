@@ -1,0 +1,52 @@
+name: Run pinact on all repos
+
+on:
+  push:
+
+jobs:
+  pinact-multi:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate a GitHub App token
+        id: generate-token
+        uses: actions/create-github-app-token@v2.0.6
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Authenticate GitHub CLI with App token
+        run: |
+          echo "${{ steps.generate-token.outputs.token }}" > token.txt
+          gh auth login --with-token < token.txt
+
+      - name: Download pinact binary (v3.3.0)
+        run: |
+          version="v3.3.0"
+          asset="pinact_linux_amd64.tar.gz"
+          gh release download "$version" \
+            -R suzuki-shunsuke/pinact \
+            -p "$asset"
+
+          tar -xzf "$asset"
+
+      - name: Run pinact on all repositories
+        env:
+          PINACT_GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          gh api /installation/repositories --paginate --jq '.repositories[].full_name' > repos.txt
+
+          while read repo; do
+            echo "Cloning $repo"
+            
+            git clone "https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/$repo"
+            cd "$(basename "$repo")"
+
+            echo "Running pinact..."
+            ../pinact run --check --update
+
+            echo "Cleaning up"
+            cd ..
+
+          done < repos.txt
